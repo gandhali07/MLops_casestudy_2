@@ -1,5 +1,7 @@
 import gradio as gr
 import spaces
+import torch
+import os
 from huggingface_hub import InferenceClient
 from transformers import pipeline
 
@@ -10,11 +12,15 @@ max_tokens = 900
 temperature = 0.7
 top_p = 0.95
 
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+print(f"[STARTUP] Using device: {DEVICE}")
+
 pipe = pipeline(
     "text-generation",
     model=LOCAL_MODEL,
     dtype="auto",
-    device="cuda",
+    device=DEVICE,
 )
 
 fancy_css = """
@@ -68,7 +74,6 @@ def respond(
     time_required,
     pantry_staples,
     use_local_model,
-    hf_token: gr.OAuthToken,
 ):
     messages = [{"role": "system", "content": system_message}]
     messages.extend(history)
@@ -99,14 +104,15 @@ def respond(
 
     print("[MODE] api")
 
-    if hf_token is None or not getattr(hf_token, "token", None):
-        yield "⚠️ Please log in with your Hugging Face account first."
-        return
+    hf_token = os.getenv("HF_TOKEN")
 
+    if not hf_token:
+        yield "⚠️ Remote model is not configured on this deployment. Please use the local model."    
+        return    
     client = InferenceClient(
-        token=hf_token.token,
-        model=REMOTE_MODEL,
-    )
+    token=hf_token,
+    model=REMOTE_MODEL,
+)
 
     response = ""
 
@@ -119,7 +125,6 @@ def respond(
     ):
         choices = chunk.choices
         token = ""
-
         if len(choices) and choices[0].delta.content:
             token = choices[0].delta.content
 
@@ -128,8 +133,6 @@ def respond(
 
 
 with gr.Blocks() as demo:
-    with gr.Sidebar():
-        gr.LoginButton()
 
     gr.Markdown(
         "# 🍽️ What's For Dinner?",
